@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AWS CLF-C02 Mock Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#f0f4ff;font-family:'Plus Jakarta Sans',sans-serif;color:#0f172a;min-height:100vh}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:#e8edf8}
+::-webkit-scrollbar-thumb{background:#a5b4fc;border-radius:10px}
+.hvr{transition:all 0.15s;cursor:pointer}
+.hvr:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.09)!important}
+.tab-btn{transition:all 0.18s}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+.fu{animation:fadeUp 0.32s ease forwards}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState } = React;
+
+// ─── STORAGE ───────────────────────────────────────────────────────────────
+const KEY = 'awstracker_v3';
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+const save = d => localStorage.setItem(KEY, JSON.stringify(d));
+
+// ─── TOPIC CONFIG ──────────────────────────────────────────────────────────
+const TOPIC_MAP = [
+  { key:'Security & Compliance', kw:['iam','waf','shield','kms','guardduty','inspector','macie','detective','security group','acl','encryption','firewall','cognito','artifact','shared responsibility','least privilege','permission','credential','certificate','ssl'] },
+  { key:'Billing & Pricing',     kw:['pricing','cost','billing','budget','saving','reserved','spot','on-demand','dedicated','consolidated','free tier','discount','pay-as-you-go'] },
+  { key:'Cloud Concepts & CAF',  kw:['cloud adoption','well-architected','caf','advantage','benefit','elasticity','agility','scalability','high availability','fault tolerance','principle','global infrastructure','region','availability zone'] },
+  { key:'Storage & Migration',   kw:['s3','ebs','efs','storage gateway','datasync','snowball','transfer family','fsx','glacier','backup','file gateway','tape gateway','volume gateway','migration','archive'] },
+  { key:'Compute',               kw:['ec2','lambda','fargate','ecs','eks','elastic beanstalk','batch','lightsail','container','serverless','auto scaling','image builder','ami'] },
+  { key:'Databases',             kw:['rds','aurora','dynamodb','redshift','elasticache','neptune','documentdb','database','sql','nosql'] },
+  { key:'Networking',            kw:['vpc','cloudfront','route 53','direct connect','global accelerator','transit gateway','vpn','privatelink','load balancing','elb','alb','network','cdn','dns'] },
+  { key:'Management',            kw:['cloudwatch','cloudtrail','config','trusted advisor','systems manager','cloudformation','organizations','control tower','service catalog','health','support plan'] },
+  { key:'Developer Tools',       kw:['sdk','cli','codecommit','codepipeline','codedeploy','codebuild','api gateway','sqs','sns','kinesis','eventbridge','step functions','cloudshell','cloud9'] },
+  { key:'AI & Analytics',        kw:['rekognition','polly','comprehend','personalize','sagemaker','lex','textract','translate','forecast','athena','glue','emr','quicksight'] },
+];
+
+const TM = {
+  'Security & Compliance': { emoji:'🔐', color:'#7c3aed', bg:'#ede9fe', bar:'#8b5cf6', light:'#f5f3ff' },
+  'Billing & Pricing':     { emoji:'💰', color:'#b45309', bg:'#fef3c7', bar:'#f59e0b', light:'#fffbeb' },
+  'Cloud Concepts & CAF':  { emoji:'☁️',  color:'#0369a1', bg:'#e0f2fe', bar:'#0ea5e9', light:'#f0f9ff' },
+  'Storage & Migration':   { emoji:'🗄️', color:'#0f766e', bg:'#ccfbf1', bar:'#14b8a6', light:'#f0fdfa' },
+  'Compute':               { emoji:'⚙️', color:'#1d4ed8', bg:'#dbeafe', bar:'#3b82f6', light:'#eff6ff' },
+  'Databases':             { emoji:'🗃️', color:'#7e22ce', bg:'#f3e8ff', bar:'#a855f7', light:'#faf5ff' },
+  'Networking':            { emoji:'🌐', color:'#0c4a6e', bg:'#bae6fd', bar:'#38bdf8', light:'#f0f9ff' },
+  'Management':            { emoji:'📊', color:'#065f46', bg:'#d1fae5', bar:'#10b981', light:'#f0fdf4' },
+  'Developer Tools':       { emoji:'🛠️', color:'#9a3412', bg:'#ffedd5', bar:'#f97316', light:'#fff7ed' },
+  'AI & Analytics':        { emoji:'🤖', color:'#be185d', bg:'#fce7f3', bar:'#ec4899', light:'#fdf2f8' },
+  'Other':                 { emoji:'📦', color:'#475569', bg:'#f1f5f9', bar:'#94a3b8', light:'#f8fafc' },
+};
+
+function classifyTopic(text) {
+  const t = text.toLowerCase();
+  for (const tp of TOPIC_MAP) { if (tp.kw.some(k => t.includes(k))) return tp.key; }
+  return 'Other';
+}
+
+// ─── PARSER ────────────────────────────────────────────────────────────────
+function parseResults(raw) {
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  let earned = null, total = null;
+  for (let li = 0; li < Math.min(20, lines.length); li++) {
+    const m = lines[li].match(/(\d+)\s*[\/of]+\s*(\d+)/i);
+    if (m && parseInt(m[2]) > 100) { earned = parseInt(m[1]); total = parseInt(m[2]); break; }
+  }
+  const questions = []; let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const isQ = line.endsWith('?') || line.match(/\*\s*$/);
+    if (isQ || (line.length > 30 && !line.startsWith('•') && !'ABCDE'.includes(line[0]+'.') && !line.match(/^\d+\/\d+$/) && !line.match(/^Correct answer/i) && !line.includes('Google Forms'))) {
+      let score = null, j = i + 1;
+      while (j < lines.length && j < i + 3) { const sm = lines[j].match(/^(\d+)\/(\d+)$/); if (sm) { score = { e:parseInt(sm[1]), t:parseInt(sm[2]) }; break; } j++; }
+      if (score) {
+        let correctAns = null; const opts = []; let k = i + 1;
+        while (k < lines.length && k < i + 20) {
+          const cl = lines[k];
+          if (cl.match(/^Correct answer/i)) {
+            let m2 = k+1; const ca = [];
+            while (m2 < lines.length && m2 < k+5) {
+              if (lines[m2].startsWith('•')) ca.push(lines[m2].replace(/^•\s*[A-E]\.\s*/,'').trim());
+              else if (lines[m2].match(/^[A-E]\.\s/)) ca.push(lines[m2].replace(/^[A-E]\.\s*/,'').trim());
+              else break; m2++;
+            }
+            correctAns = ca.join(' / '); break;
+          }
+          if (cl.match(/^[A-E]\.\s/)) opts.push(cl.replace(/^[A-E]\.\s*/,'').trim());
+          k++;
+        }
+        const topic = classifyTopic(line + ' ' + opts.join(' '));
+        questions.push({ text: line.replace(/\*$/,'').trim(), topic, correct: score.e===score.t, correctAnswer: correctAns||'' });
+        i = j + 1; continue;
+      }
+    }
+    i++;
+  }
+  const tb = {};
+  for (const q of questions) {
+    if (!tb[q.topic]) tb[q.topic] = {correct:0,total:0};
+    tb[q.topic].total++;
+    if (q.correct) tb[q.topic].correct++;
+  }
+  const cc = questions.filter(q=>q.correct).length;
+  const pct = total ? Math.round(earned/total*100) : (questions.length>0 ? Math.round(cc/questions.length*100) : 0);
+  return { rawScore:earned, maxScore:total||questions.length*16, pct, correctCount:cc, totalQuestions:questions.length, questions, topicBreakdown:tb };
+}
+
+// ─── GRADE ─────────────────────────────────────────────────────────────────
+function grade(pct) {
+  if (pct>=80) return {label:'Excellent 🎉',c:'#059669',bg:'#d1fae5',ring:'#6ee7b7'};
+  if (pct>=70) return {label:'Passing ✅',  c:'#2563eb',bg:'#dbeafe',ring:'#93c5fd'};
+  if (pct>=55) return {label:'Almost 🔥',   c:'#d97706',bg:'#fef3c7',ring:'#fcd34d'};
+  return              {label:'Keep Going 💪',c:'#dc2626',bg:'#fee2e2',ring:'#fca5a5'};
+}
+
+// ─── LINE CHART ────────────────────────────────────────────────────────────
+function LineChart({ sessions }) {
+  if (sessions.length < 2) return (
+    <div style={{textAlign:'center',color:'#94a3b8',fontSize:13,padding:'1.5rem',background:'#f8faff',borderRadius:10}}>
+      📈 Submit 2+ mocks to see your chart
+    </div>
+  );
+  const W=500,H=130,PL=30,PR=20,PT=18,PB=28;
+  const vals = sessions.map(s=>s.pct);
+  const mn=Math.max(0,Math.min(...vals)-10), mx=Math.min(100,Math.max(...vals)+10);
+  const xS=i=>PL+i*(W-PL-PR)/(sessions.length-1);
+  const yS=v=>PT+(1-(v-mn)/(mx-mn||1))*(H-PT-PB);
+  const pts=sessions.map((s,i)=>[xS(i),yS(s.pct)]);
+  const path=pts.map((p,i)=>(i===0?'M':'L')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area=path+` L${pts[pts.length-1][0].toFixed(1)} ${H-PB} L${PL} ${H-PB} Z`;
+  const py=yS(70);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{width:'100%',height:'auto',overflow:'visible'}}>
+      <defs>
+        <linearGradient id="cg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.2"/>
+          <stop offset="100%" stopColor="#6366f1" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+      {py>PT&&py<H-PB&&<>
+        <line x1={PL} y1={py} x2={W-PR} y2={py} stroke="#10b981" strokeWidth="1.5" strokeDasharray="5 4" opacity="0.8"/>
+        <text x={W-PR+3} y={py+4} fill="#10b981" fontSize="9" fontFamily="JetBrains Mono">70%</text>
+      </>}
+      <path d={area} fill="url(#cg)"/>
+      <path d={path} fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+      {pts.map((p,i)=>{
+        const g=grade(sessions[i].pct);
+        return <g key={i}>
+          <circle cx={p[0]} cy={p[1]} r="5" fill={g.c} stroke="#fff" strokeWidth="2.5"/>
+          <text x={p[0]} y={p[1]-9} textAnchor="middle" fontSize="9" fill={g.c} fontFamily="JetBrains Mono" fontWeight="600">{sessions[i].pct}%</text>
+          <text x={p[0]} y={H-PB+13} textAnchor="middle" fontSize="9" fill="#64748b" fontFamily="JetBrains Mono">{sessions[i].date}</text>
+        </g>;
+      })}
+    </svg>
+  );
+}
+
+// ─── SPARK LINE ────────────────────────────────────────────────────────────
+function Spark({ history, color }) {
+  if (!history||history.length<2) return <span style={{fontSize:10,color:'#cbd5e1'}}>—</span>;
+  const W=52,H=20;
+  const vals=history.map(h=>h.pct);
+  const mn=Math.max(0,Math.min(...vals)-5),mx=Math.min(100,Math.max(...vals)+5);
+  const xs=i=>2+i*(W-4)/(history.length-1);
+  const ys=v=>H-2-((v-mn)/(mx-mn||1))*(H-4);
+  const pts=history.map((h,i)=>[xs(i),ys(h.pct)]);
+  const d=pts.map((p,i)=>(i===0?'M':'L')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  return (
+    <svg width={W} height={H} style={{display:'inline-block',verticalAlign:'middle'}}>
+      <path d={d} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="2.5" fill={color}/>
+    </svg>
+  );
+}
+
+// ─── TOPIC CARD ────────────────────────────────────────────────────────────
+function TopicCard({ name, correct, total, history }) {
+  const pct = total>0?Math.round(correct/total*100):0;
+  const m = TM[name]||TM['Other'];
+  const st = pct>=70?{l:'Strong',c:'#059669',bg:'#d1fae5'} : pct>=50?{l:'Needs Work',c:'#d97706',bg:'#fef3c7'} : {l:'⚠ Focus Here',c:'#dc2626',bg:'#fee2e2'};
+  const trend = history&&history.length>=2 ? history[history.length-1].pct-history[0].pct : null;
+  return (
+    <div style={{background:m.light,borderRadius:14,padding:'13px 15px',border:`1.5px solid ${m.bg}`}}>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:8}}>
+        <div style={{display:'flex',alignItems:'center',gap:7}}>
+          <span style={{fontSize:20}}>{m.emoji}</span>
+          <div>
+            <div style={{fontSize:12,fontWeight:800,color:'#1e293b'}}>{name}</div>
+            <div style={{fontSize:10,color:'#94a3b8',marginTop:1}}>{correct} of {total} correct</div>
+          </div>
+        </div>
+        <span style={{fontSize:10,fontWeight:700,padding:'3px 8px',borderRadius:20,background:st.bg,color:st.c,whiteSpace:'nowrap'}}>{st.l}</span>
+      </div>
+      <div style={{height:7,background:'rgba(0,0,0,0.06)',borderRadius:8,overflow:'hidden',marginBottom:7}}>
+        <div style={{height:'100%',width:`${pct}%`,background:m.bar,borderRadius:8,transition:'width 0.8s ease'}}/>
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <span style={{fontSize:12,fontFamily:'JetBrains Mono',fontWeight:700,color:m.color}}>{pct}%</span>
+          {trend!==null&&<span style={{fontSize:10,color:trend>=0?'#059669':'#dc2626',fontFamily:'JetBrains Mono'}}>{trend>0?'↑':'↓'}{Math.abs(trend)}%</span>}
+        </div>
+        {history&&<Spark history={history} color={m.bar}/>}
+      </div>
+    </div>
+  );
+}
+
+// ─── SCORE RING ────────────────────────────────────────────────────────────
+function Ring({ pct, size=88 }) {
+  const g=grade(pct), r=(size/2)-7, circ=2*Math.PI*r, dash=(pct/100)*circ;
+  return (
+    <svg width={size} height={size} style={{transform:'rotate(-90deg)'}}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="7"/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={g.c} strokeWidth="7"
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"/>
+      <text x={size/2} y={size/2} textAnchor="middle" dominantBaseline="middle"
+        style={{transform:`rotate(90deg)`,transformOrigin:`${size/2}px ${size/2}px`,fill:g.c,fontSize:size*0.17,fontWeight:700,fontFamily:'JetBrains Mono'}}>
+        {pct}%
+      </text>
+    </svg>
+  );
+}
+
+// ─── TOP NAV ───────────────────────────────────────────────────────────────
+function Nav({ name, tab, setTab, onBack, hasSessions }) {
+  return (
+    <div style={{background:'#fff',borderBottom:'1.5px solid #e0e7ff',boxShadow:'0 2px 10px rgba(99,102,241,0.07)'}}>
+      <div style={{maxWidth:720,margin:'0 auto',padding:'0 1.5rem',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,padding:'13px 0'}}>
+          <button onClick={onBack} style={{background:'none',border:'none',cursor:'pointer',color:'#94a3b8',fontSize:20,lineHeight:1}}>←</button>
+          <div style={{width:34,height:34,borderRadius:'50%',background:'linear-gradient(135deg,#667eea,#764ba2)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:14,color:'#fff',flexShrink:0}}>
+            {name[0].toUpperCase()}
+          </div>
+          <span style={{fontWeight:800,fontSize:15}}>{name}</span>
+        </div>
+        <div style={{display:'flex',gap:3,padding:'8px 0'}}>
+          {hasSessions&&[
+            {id:'overview',icon:'📋',label:'Overview'},
+            {id:'master',  icon:'📊',label:'Dashboard'},
+          ].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} className="tab-btn"
+              style={{padding:'7px 12px',borderRadius:8,border:'none',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'Plus Jakarta Sans',display:'flex',alignItems:'center',gap:4,
+                background:tab===t.id?'linear-gradient(135deg,#6366f1,#8b5cf6)':'#f0f4ff',
+                color:tab===t.id?'#fff':'#64748b'}}>
+              <span>{t.icon}</span><span>{t.label}</span>
+            </button>
+          ))}
+          <button onClick={()=>setTab('submit')} className="tab-btn"
+            style={{padding:'7px 12px',borderRadius:8,border:'none',cursor:'pointer',fontSize:12,fontWeight:700,fontFamily:'Plus Jakarta Sans',display:'flex',alignItems:'center',gap:4,
+              background:tab==='submit'?'linear-gradient(135deg,#10b981,#059669)':'#f0fdf4',
+              color:tab==='submit'?'#fff':'#059669'}}>
+            <span>＋</span><span>Submit</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── PROFILE SCREEN ────────────────────────────────────────────────────────
+function ProfileScreen({ name, onBack }) {
+  const [tab, setTab] = useState('overview');
+  const [detailIdx, setDetailIdx] = useState(null);
+  const [rawText, setRawText] = useState('');
+  const [mockDate, setMockDate] = useState(new Date().toISOString().slice(0,10));
+  const [mockLabel, setMockLabel] = useState('');
+  const [parseError, setParseError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  // Force re-render on data changes
+  const [tick, setTick] = useState(0);
+  const refresh = () => setTick(t=>t+1);
+
+  const allData = load();
+  const sessions = (allData[name]||{sessions:[]}).sessions;
+
+  // Aggregate topics
+  const allTopics = {}, topicByMock = {};
+  sessions.forEach(s=>{
+    Object.entries(s.topicBreakdown||{}).forEach(([t,v])=>{
+      if(!allTopics[t]) allTopics[t]={correct:0,total:0};
+      allTopics[t].correct+=v.correct; allTopics[t].total+=v.total;
+      if(!topicByMock[t]) topicByMock[t]=[];
+      topicByMock[t].push({date:s.date.slice(5),pct:v.total>0?Math.round(v.correct/v.total*100):0});
+    });
+  });
+  const sorted   = Object.entries(allTopics).filter(([,v])=>v.total>0).sort((a,b)=>(a[1].correct/a[1].total)-(b[1].correct/b[1].total));
+  const weak     = sorted.filter(([,v])=>v.correct/v.total<0.6);
+  const strong   = [...sorted].reverse().filter(([,v])=>v.correct/v.total>=0.7);
+  const latest   = sessions[sessions.length-1];
+  const first    = sessions[0];
+  const growth   = latest&&first&&sessions.length>1 ? latest.pct-first.pct : null;
+  const avgPct   = sessions.length>0 ? Math.round(sessions.reduce((s,m)=>s+m.pct,0)/sessions.length) : 0;
+
+  function handleSubmit() {
+    setParseError('');
+    if (!rawText.trim()) { setParseError('Please paste your results text.'); return; }
+    setSubmitting(true);
+    setTimeout(()=>{
+      try {
+        const r = parseResults(rawText);
+        if (r.totalQuestions<3) { setParseError('Could not parse enough questions. Paste the full text.'); setSubmitting(false); return; }
+        const d=load(); if(!d[name]) d[name]={sessions:[]};
+        d[name].sessions.push({date:mockDate,label:mockLabel||`Mock ${d[name].sessions.length+1}`,...r});
+        save(d); setRawText(''); setMockLabel(''); setJustSaved(true); refresh();
+        setTimeout(()=>{ setJustSaved(false); setTab('overview'); },1500);
+      } catch { setParseError('Parse failed. Please check the text.'); }
+      setSubmitting(false);
+    },500);
+  }
+
+  function deleteSession(idx) {
+    const d=load(); d[name].sessions.splice(idx,1); save(d); refresh(); setTab('overview');
+  }
+
+  const W = {maxWidth:720,margin:'0 auto',padding:'1.5rem 1.5rem 3rem'};
+
+  // ── SUBMIT TAB ──
+  if (tab==='submit') return (
+    <div style={{minHeight:'100vh',background:'#f0f4ff'}}>
+      <Nav name={name} tab={tab} setTab={setTab} onBack={onBack} hasSessions={sessions.length>0}/>
+      <div style={W} className="fu">
+        <div style={{background:'linear-gradient(135deg,#6366f1,#818cf8)',borderRadius:16,padding:'20px 24px',marginBottom:18,color:'#fff',boxShadow:'0 6px 20px rgba(99,102,241,0.3)'}}>
+          <h2 style={{fontSize:'1.15rem',fontWeight:800,marginBottom:3}}>Submit New Mock Result</h2>
+          <p style={{fontSize:13,opacity:0.8}}>Paste your Google Form results and we'll analyse everything.</p>
+        </div>
+        {justSaved&&(
+          <div style={{background:'#d1fae5',border:'1.5px solid #6ee7b7',borderRadius:12,padding:'14px 18px',marginBottom:16,display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:22}}>🎉</span><span style={{fontWeight:700,color:'#065f46',fontSize:14}}>Saved! Loading your dashboard...</span>
+          </div>
+        )}
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:'1.5px solid #e0e7ff',marginBottom:14,boxShadow:'0 4px 16px rgba(99,102,241,0.07)'}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:16}}>
+            <div>
+              <label style={{fontSize:11,fontWeight:700,color:'#6366f1',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5}}>Date</label>
+              <input type="date" value={mockDate} onChange={e=>setMockDate(e.target.value)}
+                style={{width:'100%',padding:'10px 12px',border:'1.5px solid #e0e7ff',borderRadius:10,fontSize:14,fontFamily:'Plus Jakarta Sans',outline:'none',background:'#f8faff'}}/>
+            </div>
+            <div>
+              <label style={{fontSize:11,fontWeight:700,color:'#6366f1',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5}}>Label (optional)</label>
+              <input value={mockLabel} onChange={e=>setMockLabel(e.target.value)} placeholder="e.g. Mock 3, Week 2..."
+                style={{width:'100%',padding:'10px 12px',border:'1.5px solid #e0e7ff',borderRadius:10,fontSize:14,fontFamily:'Plus Jakarta Sans',outline:'none',background:'#f8faff'}}/>
+            </div>
+          </div>
+          <label style={{fontSize:11,fontWeight:700,color:'#6366f1',letterSpacing:1,textTransform:'uppercase',display:'block',marginBottom:5}}>Paste Results Text</label>
+          <textarea value={rawText} onChange={e=>setRawText(e.target.value)}
+            placeholder={"Paste the full text from your Google Form results here...\n\nTip: Open results → Select All (Ctrl+A) → Copy (Ctrl+C) → Paste here"}
+            style={{width:'100%',height:230,padding:12,border:'1.5px solid #e0e7ff',borderRadius:10,fontSize:13,fontFamily:'JetBrains Mono',resize:'vertical',outline:'none',lineHeight:1.7,background:'#f8faff'}}/>
+          {parseError&&<p style={{color:'#dc2626',fontSize:13,marginTop:8,fontWeight:600}}>⚠ {parseError}</p>}
+        </div>
+        <button onClick={handleSubmit} disabled={submitting}
+          style={{width:'100%',padding:'14px',background:submitting?'#a5b4fc':'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'#fff',border:'none',borderRadius:12,fontSize:15,fontWeight:800,cursor:submitting?'not-allowed':'pointer',fontFamily:'Plus Jakarta Sans',boxShadow:'0 4px 14px rgba(99,102,241,0.35)'}}>
+          {submitting?'⏳ Analysing...':'🚀 Analyse My Results'}
+        </button>
+        <div style={{background:'#fffbeb',border:'1.5px solid #fde68a',borderRadius:12,padding:14,marginTop:14}}>
+          <p style={{fontSize:13,fontWeight:700,color:'#92400e',marginBottom:4}}>💡 How to copy from Google Forms</p>
+          <p style={{fontSize:12,color:'#a16207',lineHeight:1.7}}>1. Open your Google Form result page<br/>2. Select all text (Ctrl+A or Cmd+A)<br/>3. Copy (Ctrl+C or Cmd+C)<br/>4. Paste above and hit Analyse</p>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── EMPTY STATE ──
+  if (sessions.length===0) return (
+    <div style={{minHeight:'100vh',background:'#f0f4ff'}}>
+      <Nav name={name} tab={tab} setTab={setTab} onBack={onBack} hasSessions={false}/>
+      <div style={{maxWidth:480,margin:'4rem auto',padding:'0 1.5rem',textAlign:'center'}} className="fu">
+        <div style={{background:'#fff',borderRadius:20,padding:'3rem 2rem',border:'1.5px solid #e0e7ff',boxShadow:'0 4px 24px rgba(99,102,241,0.08)'}}>
+          <div style={{fontSize:56,marginBottom:16}}>📋</div>
+          <h3 style={{fontWeight:800,fontSize:'1.2rem',marginBottom:8}}>No mocks yet, {name}!</h3>
+          <p style={{color:'#94a3b8',fontSize:14,marginBottom:24,lineHeight:1.6}}>Submit your first mock to start tracking your CLF-C02 journey.</p>
+          <button onClick={()=>setTab('submit')}
+            style={{background:'linear-gradient(135deg,#6366f1,#8b5cf6)',color:'#fff',border:'none',borderRadius:12,padding:'12px 28px',fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'Plus Jakarta Sans',boxShadow:'0 4px 14px rgba(99,102,241,0.3)'}}>
+            Submit First Mock →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── DETAIL VIEW ──
+  if (tab==='detail'&&detailIdx!==null) {
+    const s=sessions[detailIdx], g=grade(s.pct), wrongQs=(s.questions||[]).filter(q=>!q.correct);
+    return (
+      <div style={{minHeight:'100vh',background:'#f0f4ff'}}>
+        <Nav name={name} tab="overview" setTab={t=>{ if(t!=='detail')setTab(t); }} onBack={()=>setTab('overview')} hasSessions={true}/>
+        <div style={W} className="fu">
+          {/* Hero */}
+          <div style={{background:`linear-gradient(135deg,${g.c}18,${g.c}08)`,border:`2px solid ${g.ring}`,borderRadius:18,padding:'20px 22px',marginBottom:14,display:'flex',alignItems:'center',gap:18,flexWrap:'wrap'}}>
+            <Ring pct={s.pct} size={90}/>
+            <div style={{flex:1}}>
+              <h2 style={{fontSize:'1.2rem',fontWeight:800,marginBottom:3}}>{s.label}</h2>
+              <p style={{color:'#64748b',fontSize:12,fontFamily:'JetBrains Mono',marginBottom:8}}>{s.date}</p>
+              <span style={{background:g.bg,color:g.c,padding:'4px 12px',borderRadius:20,fontSize:12,fontWeight:700}}>{g.label}</span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,width:'100%',marginTop:4}}>
+              {[{l:'Score',v:`${s.rawScore||'?'}/${s.maxScore||'?'}`},{l:'Correct',v:`${s.correctCount}/${s.totalQuestions}`},{l:'Wrong',v:`${s.totalQuestions-s.correctCount}`}].map(m=>(
+                <div key={m.l} style={{background:'rgba(255,255,255,0.7)',borderRadius:10,padding:'10px',textAlign:'center'}}>
+                  <div style={{fontFamily:'JetBrains Mono',fontWeight:700,fontSize:16}}>{m.v}</div>
+                  <div style={{fontSize:11,color:'#64748b'}}>{m.l}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Topics */}
+          <div style={{background:'#fff',borderRadius:16,padding:18,border:'1.5px solid #e0e7ff',marginBottom:14,boxShadow:'0 2px 10px rgba(99,102,241,0.06)'}}>
+            <h3 style={{fontSize:13,fontWeight:800,color:'#1e293b',marginBottom:12}}>Topic Breakdown</h3>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:9}}>
+              {Object.entries(s.topicBreakdown||{}).filter(([,v])=>v.total>0).sort((a,b)=>(a[1].correct/a[1].total)-(b[1].correct/b[1].total)).map(([t,v])=>(
+                <TopicCard key={t} name={t} correct={v.correct} total={v.total} history={topicByMock[t]}/>
+              ))}
+            </div>
+          </div>
+          {/* Wrong answers */}
+          {wrongQs.length>0&&(
+            <div style={{background:'#fff',borderRadius:16,padding:18,border:'1.5px solid #fecaca',marginBottom:14}}>
+              <h3 style={{fontSize:13,fontWeight:800,color:'#dc2626',marginBottom:12}}>❌ Wrong Answers ({wrongQs.length})</h3>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {wrongQs.map((q,i)=>(
+                  <div key={i} style={{background:'#fff5f5',borderRadius:10,padding:'11px 13px',border:'1px solid #fecaca'}}>
+                    <div style={{fontSize:13,color:'#334155',marginBottom:6,lineHeight:1.6}}>{q.text.slice(0,130)}{q.text.length>130?'...':''}</div>
+                    <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                      <span style={{fontSize:10,background:(TM[q.topic]||TM['Other']).bg,color:(TM[q.topic]||TM['Other']).color,padding:'2px 8px',borderRadius:20,fontWeight:700}}>{(TM[q.topic]||TM['Other']).emoji} {q.topic}</span>
+                      {q.correctAnswer&&<span style={{fontSize:10,background:'#dcfce7',color:'#166534',padding:'2px 8px',borderRadius:20,fontWeight:600}}>✓ {q.correctAnswer.slice(0,60)}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <button onClick={()=>{if(window.confirm('Delete this session?'))deleteSession(detailIdx)}}
+            style={{background:'none',border:'1.5px solid #fca5a5',color:'#dc2626',borderRadius:10,padding:'9px 18px',fontSize:13,cursor:'pointer',fontFamily:'Plus Jakarta Sans',fontWeight:700}}>
+            🗑 Delete Session
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── OVERVIEW TAB ──
+  if (tab==='overview') return (
+    <div style={{minHeight:'100vh',background:'#f0f4ff'}}>
+      <Nav name={name} tab={tab} setTab={setTab} onBack={onBack} hasSessions={true}/>
+      <div style={W} className="fu">
+        {/* Stats */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
+          {[
+            {l:'Latest',v:`${latest.pct}%`,c:grade(latest.pct).c,bg:grade(latest.pct).bg},
+            {l:'Average',v:`${avgPct}%`,c:'#6366f1',bg:'#ede9fe'},
+            {l:'Mocks',v:sessions.length,c:'#0369a1',bg:'#e0f2fe'},
+            {l:'Growth',v:growth!==null?`${growth>0?'+':''}${growth}%`:'—',c:growth===null?'#94a3b8':growth>=0?'#059669':'#dc2626',bg:growth===null?'#f1f5f9':growth>=0?'#d1fae5':'#fee2e2'},
+          ].map(m=>(
+            <div key={m.l} style={{background:'#fff',border:`2px solid ${m.bg}`,borderRadius:14,padding:'13px 10px',textAlign:'center',boxShadow:`0 2px 8px ${m.bg}`}}>
+              <div style={{fontFamily:'JetBrains Mono',fontSize:'1.45rem',fontWeight:700,color:m.c}}>{m.v}</div>
+              <div style={{fontSize:11,color:'#64748b',marginTop:3,fontWeight:600}}>{m.l}</div>
+            </div>
+          ))}
+        </div>
+        {/* Chart */}
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:'1.5px solid #e0e7ff',marginBottom:14,boxShadow:'0 2px 12px rgba(99,102,241,0.06)'}}>
+          <h3 style={{fontSize:13,fontWeight:800,color:'#1e293b',marginBottom:2}}>📈 Score Progress</h3>
+          <p style={{fontSize:11,color:'#94a3b8',marginBottom:12}}>Green dashed = 70% pass threshold</p>
+          <LineChart sessions={sessions.map(s=>({pct:s.pct,date:s.date.slice(5)}))}/>
+        </div>
+        {/* History */}
+        <div style={{background:'#fff',borderRadius:16,border:'1.5px solid #e0e7ff',overflow:'hidden',boxShadow:'0 2px 12px rgba(99,102,241,0.06)'}}>
+          <div style={{padding:'13px 18px',borderBottom:'1px solid #f0f4ff',display:'flex',alignItems:'center',justifyContent:'space-between',background:'linear-gradient(135deg,#f8faff,#f0f4ff)'}}>
+            <h3 style={{fontSize:13,fontWeight:800,color:'#1e293b'}}>Mock History</h3>
+            <span style={{fontSize:11,color:'#94a3b8',fontFamily:'JetBrains Mono'}}>{sessions.length} total</span>
+          </div>
+          {[...sessions].reverse().map((s,ri)=>{
+            const idx=sessions.length-1-ri, g=grade(s.pct), prev=idx>0?sessions[idx-1]:null, diff=prev?s.pct-prev.pct:null;
+            return (
+              <div key={idx} onClick={()=>{setDetailIdx(idx);setTab('detail')}} className="hvr"
+                style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 18px',borderBottom:'1px solid #f8faff'}}>
+                <div style={{display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{width:42,height:42,borderRadius:12,background:g.bg,border:`2px solid ${g.ring}`,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'JetBrains Mono',fontWeight:700,fontSize:12,color:g.c}}>
+                    {s.pct}%
+                  </div>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:14}}>{s.label}</div>
+                    <div style={{fontSize:11,color:'#94a3b8',fontFamily:'JetBrains Mono'}}>{s.date} · {s.correctCount}/{s.totalQuestions} ✓</div>
+                  </div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  {diff!==null&&<span style={{fontSize:12,fontFamily:'JetBrains Mono',color:diff>=0?'#059669':'#dc2626',fontWeight:700}}>{diff>0?'+':''}{diff}%</span>}
+                  <span style={{fontSize:11,background:g.bg,color:g.c,padding:'3px 9px',borderRadius:20,fontWeight:700}}>{g.label}</span>
+                  <span style={{color:'#a5b4fc',fontSize:18}}>›</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // ── MASTER DASHBOARD TAB ──
+  if (tab==='master') return (
+    <div style={{minHeight:'100vh',background:'#f0f4ff'}}>
+      <Nav name={name} tab={tab} setTab={setTab} onBack={onBack} hasSessions={true}/>
+      <div style={W} className="fu">
+        {/* Hero */}
+        <div style={{background:'linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%)',borderRadius:18,padding:'22px 24px',marginBottom:16,color:'#fff',boxShadow:'0 8px 28px rgba(15,23,42,0.25)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+            <span style={{fontSize:24}}>📊</span>
+            <h2 style={{fontSize:'1.2rem',fontWeight:800}}>Master Dashboard</h2>
+          </div>
+          <p style={{fontSize:13,color:'rgba(255,255,255,0.6)'}}>All {sessions.length} mocks combined — your complete topic picture and growth story</p>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10,marginTop:16}}>
+            {[
+              {l:'Avg Score',v:`${avgPct}%`,c:grade(avgPct).c,bg:grade(avgPct).bg},
+              {l:'Total Mocks',v:sessions.length,c:'#818cf8',bg:'#3730a3'},
+              {l:'Growth',v:growth!==null?`${growth>0?'+':''}${growth}%`:'—',c:growth===null?'#94a3b8':growth>=0?'#4ade80':'#f87171',bg:growth===null?'#334155':growth>=0?'#14532d':'#7f1d1d'},
+            ].map(m=>(
+              <div key={m.l} style={{background:m.bg+'33',border:`1px solid ${m.bg}55`,borderRadius:12,padding:'12px',textAlign:'center'}}>
+                <div style={{fontFamily:'JetBrains Mono',fontSize:'1.4rem',fontWeight:700,color:m.c}}>{m.v}</div>
+                <div style={{fontSize:11,color:'rgba(255,255,255,0.5)',marginTop:3}}>{m.l}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:'1.5px solid #e0e7ff',marginBottom:14,boxShadow:'0 2px 12px rgba(99,102,241,0.06)'}}>
+          <h3 style={{fontSize:13,fontWeight:800,color:'#1e293b',marginBottom:2}}>📈 Score Journey — All Mocks</h3>
+          <p style={{fontSize:11,color:'#94a3b8',marginBottom:12}}>Where you started vs where you are now</p>
+          <LineChart sessions={sessions.map(s=>({pct:s.pct,date:s.date.slice(5)}))}/>
+        </div>
+
+        {/* WEAK POINTS */}
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:'2px solid #fecaca',marginBottom:14,boxShadow:'0 4px 16px rgba(239,68,68,0.07)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+            <span style={{fontSize:22}}>🔴</span>
+            <h3 style={{fontSize:15,fontWeight:800,color:'#dc2626'}}>Weak Points</h3>
+          </div>
+          <p style={{fontSize:12,color:'#94a3b8',marginBottom:14}}>Below 60% accuracy — dedicate your study time here first</p>
+          {weak.length===0 ? (
+            <div style={{textAlign:'center',padding:'1.5rem',background:'#f0fdf4',borderRadius:12,border:'1.5px solid #bbf7d0'}}>
+              <span style={{fontSize:28}}>🎉</span>
+              <p style={{fontWeight:700,color:'#059669',marginTop:6,fontSize:14}}>No weak topics! Every area is above 60%.</p>
+            </div>
+          ) : (
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {weak.map(([t,v])=>(<TopicCard key={t} name={t} correct={v.correct} total={v.total} history={topicByMock[t]}/>))}
+            </div>
+          )}
+        </div>
+
+        {/* STRONG POINTS */}
+        <div style={{background:'#fff',borderRadius:16,padding:20,border:'2px solid #6ee7b7',boxShadow:'0 4px 16px rgba(16,185,129,0.07)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+            <span style={{fontSize:22}}>🟢</span>
+            <h3 style={{fontSize:15,fontWeight:800,color:'#059669'}}>Strong Points</h3>
+          </div>
+          <p style={{fontSize:12,color:'#94a3b8',marginBottom:14}}>70%+ accuracy — keep these sharp, don't let them slip!</p>
+          {strong.length===0 ? (
+            <div style={{textAlign:'center',padding:'1.5rem',background:'#fffbeb',borderRadius:12,border:'1.5px solid #fde68a'}}>
+              <span style={{fontSize:28}}>💪</span>
+              <p style={{fontWeight:700,color:'#d97706',marginTop:6,fontSize:14}}>No strong topics yet — keep practising!</p>
+            </div>
+          ) : (
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              {strong.map(([t,v])=>(<TopicCard key={t} name={t} correct={v.correct} total={v.total} history={topicByMock[t]}/>))}
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+
+  return null;
+}
+
+// ─── HOME SCREEN ───────────────────────────────────────────────────────────
+function HomeScreen({ onSelect, onCreate }) {
+  const data = load();
+  const profiles = Object.keys(data);
+  const [name, setName] = useState('');
+
+  function handleCreate() {
+    const n = name.trim(); if (!n) return;
+    const d=load(); if(!d[n]){d[n]={sessions:[]};save(d);}
+    onCreate(n); setName('');
+  }
+
+  return (
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#667eea 0%,#764ba2 50%,#f093fb 100%)',display:'flex',alignItems:'center',justifyContent:'center',padding:'2rem'}}>
+      <div style={{maxWidth:460,width:'100%'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{fontSize:56,marginBottom:10,filter:'drop-shadow(0 4px 12px rgba(0,0,0,0.2))'}}>☁️</div>
+          <h1 style={{fontSize:'2.2rem',fontWeight:800,color:'#fff',letterSpacing:'-1px',marginBottom:8,textShadow:'0 2px 10px rgba(0,0,0,0.2)'}}>AWS Mock Tracker</h1>
+          <p style={{color:'rgba(255,255,255,0.8)',fontSize:15}}>Track daily practice. See growth. Crush CLF-C02. 🚀</p>
+        </div>
+
+        <div style={{background:'rgba(255,255,255,0.96)',borderRadius:22,padding:26,boxShadow:'0 24px 64px rgba(0,0,0,0.2)'}}>
+          {profiles.length>0&&(
+            <div style={{marginBottom:20}}>
+              <p style={{fontSize:11,fontWeight:700,color:'#94a3b8',letterSpacing:2,textTransform:'uppercase',marginBottom:10}}>Your Profiles</p>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {profiles.map(n=>{
+                  const ss=data[n].sessions||[], last=ss[ss.length-1], first=ss[0];
+                  const g=last?grade(last.pct):null;
+                  const gw=last&&first&&ss.length>1?last.pct-first.pct:null;
+                  return (
+                    <div key={n} onClick={()=>onSelect(n)} className="hvr"
+                      style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'#f8faff',border:'1.5px solid #e0e7ff',borderRadius:14,padding:'12px 14px',cursor:'pointer',boxShadow:'0 2px 6px rgba(99,102,241,0.06)'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:10}}>
+                        <div style={{width:40,height:40,borderRadius:'50%',background:'linear-gradient(135deg,#667eea,#764ba2)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:16,color:'#fff',boxShadow:'0 3px 8px rgba(99,102,241,0.3)'}}>
+                          {n[0].toUpperCase()}
+                        </div>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:14,color:'#1e293b'}}>{n}</div>
+                          <div style={{fontSize:11,color:'#94a3b8'}}>{ss.length} mock{ss.length!==1?'s':''} submitted</div>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        {gw!==null&&<span style={{fontSize:11,fontFamily:'JetBrains Mono',color:gw>=0?'#059669':'#dc2626',fontWeight:700}}>{gw>0?'+':''}{gw}%</span>}
+                        {g&&<span style={{fontFamily:'JetBrains Mono',fontWeight:800,fontSize:16,color:g.c}}>{last.pct}%</span>}
+                        <span style={{color:'#a5b4fc',fontSize:18}}>›</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <p style={{fontSize:11,fontWeight:700,color:'#94a3b8',letterSpacing:2,textTransform:'uppercase',marginBottom:10}}>
+            {profiles.length>0?'Add New Profile':'Get Started'}
+          </p>
+          <div style={{display:'flex',gap:8}}>
+            <input value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleCreate()}
+              placeholder="Enter your name..."
+              style={{flex:1,padding:'11px 14px',border:'1.5px solid #e0e7ff',borderRadius:12,fontSize:14,fontFamily:'Plus Jakarta Sans',outline:'none',background:'#f8faff'}}/>
+            <button onClick={handleCreate}
+              style={{padding:'11px 20px',background:'linear-gradient(135deg,#667eea,#764ba2)',color:'#fff',border:'none',borderRadius:12,fontSize:14,fontWeight:800,cursor:'pointer',fontFamily:'Plus Jakarta Sans',boxShadow:'0 4px 12px rgba(99,102,241,0.35)'}}>
+              Go →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ROOT ──────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState('home');
+  const [profile, setProfile] = useState(null);
+  const go = n => { setProfile(n); setScreen('profile'); };
+  if (screen==='profile'&&profile) return <ProfileScreen name={profile} onBack={()=>{setProfile(null);setScreen('home')}}/>;
+  return <HomeScreen onSelect={go} onCreate={go}/>;
+}
+
+ReactDOM.render(<App/>, document.getElementById('root'));
+</script>
+</body>
+</html>
